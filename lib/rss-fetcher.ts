@@ -1,6 +1,27 @@
 import Parser from 'rss-parser';
-import { stringSimilarity } from 'string-similarity';
 import { convert } from 'html-to-text';
+
+// Native Dice coefficient similarity — replaces broken `string-similarity` package
+function stringSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const getBigrams = (str: string) => {
+    const bigrams = new Map<string, number>();
+    for (let i = 0; i < str.length - 1; i++) {
+      const bigram = str.slice(i, i + 2);
+      bigrams.set(bigram, (bigrams.get(bigram) || 0) + 1);
+    }
+    return bigrams;
+  };
+  const aBigrams = getBigrams(a);
+  const bBigrams = getBigrams(b);
+  let intersectionSize = 0;
+  for (const [bigram, count] of aBigrams) {
+    const bCount = bBigrams.get(bigram) || 0;
+    intersectionSize += Math.min(count, bCount);
+  }
+  return (2 * intersectionSize) / (a.length + b.length - 2);
+}
 
 const FETCH_TIMEOUT_MS = 8000; // 8 second timeout per feed
 
