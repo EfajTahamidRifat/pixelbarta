@@ -2,7 +2,14 @@ import Parser from 'rss-parser';
 import { stringSimilarity } from 'string-similarity';
 import { convert } from 'html-to-text';
 
+const FETCH_TIMEOUT_MS = 8000; // 8 second timeout per feed
+
 const parser = new Parser({
+  timeout: FETCH_TIMEOUT_MS,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (compatible; PixelBarta/1.0; +https://pixelbarta.vercel.app)',
+    'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+  },
   customFields: {
     item: [
       ['media:content', 'mediaContent'],
@@ -149,33 +156,47 @@ function deduplicateArticles(articles: NewsArticle[]): NewsArticle[] {
   });
 }
 
+async function fetchSingleFeed(source: FeedSource): Promise<NewsArticle[]> {
+  const feed = await parser.parseURL(source.url);
+  const articles: NewsArticle[] = [];
+
+  feed.items.slice(0, 20).forEach((item, index) => {
+    if (!item.title) return;
+
+    articles.push({
+      id: `${source.name}-${index}-${item.pubDate}`,
+      title: item.title,
+      description: item.contentSnippet || item.summary || '',
+      image: extractImageFromItem(item, source),
+      link: item.link || '',
+      pubDate: item.pubDate || new Date().toISOString(),
+      source: source.name,
+      category: source.category,
+      badge: generateBadge(item.title),
+    });
+  });
+
+  return articles;
+}
+
 export async function fetchAllFeeds(): Promise<NewsArticle[]> {
+  // Fetch all feeds in parallel — prevents one slow/hanging feed from blocking others
+  const results = await Promise.allSettled(
+    FEED_SOURCES.map((source) => fetchSingleFeed(source))
+  );
+
   const allArticles: NewsArticle[] = [];
 
-  for (const source of FEED_SOURCES) {
-    try {
-      const feed = await parser.parseURL(source.url);
-      
-      feed.items.slice(0, 20).forEach((item, index) => {
-        if (!item.title) return;
-        
-        const article: NewsArticle = {
-          id: `${source.name}-${index}-${item.pubDate}`,
-          title: item.title,
-          description: item.contentSnippet || item.summary || '',
-          image: extractImageFromItem(item, source),
-          link: item.link || '',
-          pubDate: item.pubDate || new Date().toISOString(),
-          source: source.name,
-          category: source.category,
-          badge: generateBadge(item.title),
-        };
-        
-        allArticles.push(article);
-      });
-    } catch (error) {
-      console.error(`[v0] Failed to fetch ${source.name}:`, error);
+  results.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      allArticles.push(...result.value);
+    } else {
+      console.error(`[pixelbarta] Failed to fetch ${FEED_SOURCES[i].name}:`, result.reason);
     }
+  });
+
+  if (allArticles.length === 0) {
+    throw new Error('All RSS feeds failed to load.');
   }
 
   // Deduplicate and sort by date
