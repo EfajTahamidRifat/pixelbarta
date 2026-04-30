@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
+import { getPreferences, savePreferences } from '@/lib/storage';
 
 interface BilingualSwitchProps {
   onLanguageChange?: (language: 'en' | 'bn') => void;
@@ -11,57 +12,45 @@ export function BilingualSwitch({ onLanguageChange }: BilingualSwitchProps) {
   const [language, setLanguage] = useState<'en' | 'bn'>('en');
 
   useEffect(() => {
-    // Load from localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const prefs = JSON.parse(localStorage.getItem('pixelbarta_preferences') || '{}');
-        if (prefs.language) {
-          setLanguage(prefs.language);
-        }
-      } catch (error) {
-        console.error('[v0] Failed to load language preference:', error);
-      }
+    const prefs = getPreferences();
+    if (prefs.language) {
+      setLanguage(prefs.language);
+      // Sync parent on mount so feed is filtered from the start
+      onLanguageChange?.(prefs.language);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleToggle = () => {
-    const newLanguage = language === 'en' ? 'bn' : 'en';
-    setLanguage(newLanguage);
-    
-    // Save to localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const prefs = JSON.parse(localStorage.getItem('pixelbarta_preferences') || '{}');
-        prefs.language = newLanguage;
-        localStorage.setItem('pixelbarta_preferences', JSON.stringify(prefs));
-      } catch (error) {
-        console.error('[v0] Failed to save language preference:', error);
-      }
-    }
-
-    onLanguageChange?.(newLanguage);
+    const next = language === 'en' ? 'bn' : 'en';
+    setLanguage(next);
+    const prefs = getPreferences();
+    prefs.language = next;
+    savePreferences(prefs);
+    onLanguageChange?.(next);
   };
 
   return (
     <motion.button
       onClick={handleToggle}
-      className="fixed top-6 right-6 z-40 px-4 py-2 rounded-full backdrop-blur border border-white/20 bg-white/10 text-white font-semibold text-sm hover:bg-white/20 transition-all duration-300"
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-0 rounded-full overflow-hidden border border-white/20 bg-black/40 backdrop-blur-md text-xs font-semibold shadow-lg"
+      whileTap={{ scale: 0.96 }}
+      aria-label={`Switch to ${language === 'en' ? 'Bengali' : 'English'}`}
     >
-      <motion.span
-        key={language}
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 10 }}
-        transition={{ duration: 0.3 }}
+      <span
+        className={`px-4 py-2 transition-all duration-300 ${
+          language === 'en' ? 'bg-white text-black' : 'text-white/50'
+        }`}
       >
-        {language === 'en' ? (
-          <span>EN / <span className="text-gray-300">বাং</span></span>
-        ) : (
-          <span><span className="text-gray-300">EN</span> / বাং</span>
-        )}
-      </motion.span>
+        EN
+      </span>
+      <span
+        className={`px-4 py-2 transition-all duration-300 ${
+          language === 'bn' ? 'bg-white text-black' : 'text-white/50'
+        }`}
+      >
+        বাংলা
+      </span>
     </motion.button>
   );
 }
