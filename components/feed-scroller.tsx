@@ -1,190 +1,142 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
 import { NewsArticle } from '@/lib/rss-fetcher';
 import { NewsCard } from './news-card';
 import { ActionVerticalBar } from './action-vertical-bar';
 import { ProgressBar } from './progress-bar';
 import { ContextDrawer } from './context-drawer';
 import { BilingualSwitch } from './bilingual-switch';
+import { getPreferences } from '@/lib/storage';
 
 interface FeedScrollerProps {
   articles: NewsArticle[];
 }
 
-export function FeedScroller({ articles }: FeedScrollerProps) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isMobile, setIsMobile] = useState(false);
+const BN_SOURCES = ['Bangla Tribune', 'DigiBangla'];
 
-  useEffect(() => {
-    // Check if mobile
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+export function FeedScroller({ articles }: FeedScrollerProps) {
+  const [language, setLanguage] = useState<'en' | 'bn'>(() => {
+    // Initialise from storage on first render (client only)
+    if (typeof window !== 'undefined') return getPreferences().language;
+    return 'en';
+  });
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [showHint, setShowHint] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Filter articles by language
+  const filtered = articles.filter((a) =>
+    language === 'bn'
+      ? BN_SOURCES.some((s) => a.source.includes(s))
+      : !BN_SOURCES.some((s) => a.source.includes(s))
+  );
+
+  // When language changes reset scroll position
+  const handleLanguageChange = useCallback((lang: 'en' | 'bn') => {
+    setLanguage(lang);
+    setCurrentIndex(0);
+    containerRef.current?.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
 
+  // Hide swipe hint after first scroll
   const handleScroll = useCallback(() => {
     if (!containerRef.current) return;
-
     const { scrollTop, clientHeight } = containerRef.current;
-    const newIndex = Math.round(scrollTop / clientHeight);
-    setCurrentIndex(Math.min(newIndex, articles.length - 1));
-  }, [articles.length]);
+    const idx = Math.round(scrollTop / clientHeight);
+    setCurrentIndex(Math.min(idx, filtered.length - 1));
+    if (idx > 0) setShowHint(false);
+  }, [filtered.length]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // Keyboard navigation and touch swipe
+  // Keyboard navigation
   useEffect(() => {
-    let touchStartY = 0;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const newIndex = Math.min(currentIndex + 1, articles.length - 1);
-        setCurrentIndex(newIndex);
+    const go = (dir: 1 | -1) => {
+      setCurrentIndex((prev) => {
+        const next = Math.min(Math.max(prev + dir, 0), filtered.length - 1);
         containerRef.current?.scrollTo({
-          top: newIndex * window.innerHeight,
+          top: next * window.innerHeight,
           behavior: 'smooth',
         });
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const newIndex = Math.max(currentIndex - 1, 0);
-        setCurrentIndex(newIndex);
-        containerRef.current?.scrollTo({
-          top: newIndex * window.innerHeight,
-          behavior: 'smooth',
-        });
-      }
+        return next;
+      });
     };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      touchStartY = e.touches[0].clientY;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); go(1); }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); go(-1); }
     };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [filtered.length]);
 
-    const handleTouchEnd = (e: TouchEvent) => {
-      const touchEndY = e.changedTouches[0].clientY;
-      const diff = touchStartY - touchEndY;
-
-      // Only trigger if swipe is significant (more than 50px)
-      if (Math.abs(diff) > 50) {
-        if (diff > 0) {
-          // Swiped up
-          const newIndex = Math.min(currentIndex + 1, articles.length - 1);
-          setCurrentIndex(newIndex);
-          containerRef.current?.scrollTo({
-            top: newIndex * window.innerHeight,
-            behavior: 'smooth',
-          });
-        } else {
-          // Swiped down
-          const newIndex = Math.max(currentIndex - 1, 0);
-          setCurrentIndex(newIndex);
-          containerRef.current?.scrollTo({
-            top: newIndex * window.innerHeight,
-            behavior: 'smooth',
-          });
-        }
-      }
-    };
-
-    const container = containerRef.current;
-    window.addEventListener('keydown', handleKeyDown);
-    if (container) {
-      container.addEventListener('touchstart', handleTouchStart);
-      container.addEventListener('touchend', handleTouchEnd);
-    }
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      if (container) {
-        container.removeEventListener('touchstart', handleTouchStart);
-        container.removeEventListener('touchend', handleTouchEnd);
-      }
-    };
-  }, [currentIndex, articles.length]);
-
-  if (articles.length === 0) {
+  if (filtered.length === 0) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-black">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-center text-white/50"
-        >
-          <p className="text-lg mb-2">Loading news...</p>
-          <div className="flex justify-center gap-1">
-            {[0, 1, 2].map((i) => (
-              <motion.div
-                key={i}
-                className="w-2 h-2 rounded-full bg-white/30"
-                animate={{ y: [0, -8, 0] }}
-                transition={{
-                  duration: 1.4,
-                  repeat: Infinity,
-                  delay: i * 0.2,
-                }}
-              />
-            ))}
-          </div>
-        </motion.div>
+        <div className="text-center text-white/40 px-6">
+          <p className="text-base mb-1">No articles available</p>
+          <p className="text-sm">Try switching language</p>
+        </div>
+        <BilingualSwitch onLanguageChange={handleLanguageChange} />
       </div>
     );
   }
 
-  const currentArticle = articles[currentIndex];
+  const currentArticle = filtered[currentIndex] ?? filtered[0];
 
   return (
     <div className="relative h-screen w-full bg-black overflow-hidden">
-      {/* Progress Bar */}
-      <ProgressBar currentIndex={currentIndex} totalArticles={articles.length} />
+      {/* Progress bar */}
+      <ProgressBar currentIndex={currentIndex} totalArticles={filtered.length} />
 
-      {/* Bilingual Switch */}
-      <BilingualSwitch />
+      {/* Language toggle — centered top */}
+      <BilingualSwitch onLanguageChange={handleLanguageChange} />
 
-      {/* Main Scroll Container */}
+      {/* Scroll container */}
       <div
         ref={containerRef}
-        className="h-screen w-full overflow-y-scroll snap-mandatory snap-y scroll-smooth"
-        style={{ scrollBehavior: 'smooth' }}
+        className="h-screen w-full overflow-y-scroll snap-y snap-mandatory"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
-        {articles.map((article, index) => (
-          <div key={article.id} className="snap-center">
-            <NewsCard
-              article={article}
-              isVisible={currentIndex === index}
-            />
-          </div>
+        {filtered.map((article, index) => (
+          <NewsCard
+            key={article.id}
+            article={article}
+            isVisible={currentIndex === index}
+          />
         ))}
       </div>
 
-      {/* Action Bar */}
-      {currentArticle && (
-        <ActionVerticalBar article={currentArticle} isVisible={true} />
-      )}
+      {/* Action bar — right side */}
+      <ActionVerticalBar article={currentArticle} isVisible={true} />
 
-      {/* Context Drawer */}
-      {currentArticle && <ContextDrawer article={currentArticle} />}
+      {/* Context drawer trigger */}
+      <ContextDrawer article={currentArticle} />
 
-      {/* Mobile Instructions */}
-      {isMobile && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1 }}
-          className="fixed bottom-4 left-4 right-4 z-20 text-center text-white/50 text-xs"
+      {/* Swipe hint — auto-dismisses after first scroll or 3 seconds */}
+      {showHint && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none"
+          style={{ animation: 'fadeout 3s forwards 2s' }}
         >
-          <p>Scroll for more | Tap icons to interact</p>
-        </motion.div>
+          <div className="flex flex-col items-center gap-1.5 text-white/30">
+            <svg className="w-5 h-5 animate-bounce" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+            <span className="text-[11px] tracking-widest uppercase">Scroll to explore</span>
+          </div>
+        </div>
       )}
+
+      <style>{`
+        div::-webkit-scrollbar { display: none; }
+        @keyframes fadeout { to { opacity: 0; } }
+      `}</style>
     </div>
   );
 }
