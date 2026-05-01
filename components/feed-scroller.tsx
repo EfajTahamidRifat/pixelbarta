@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { NewsArticle } from '@/lib/rss-fetcher';
 import { NewsCard } from './news-card';
 import { ActionVerticalBar } from './action-vertical-bar';
@@ -17,33 +18,31 @@ const BN_SOURCES = ['Bangla Tribune', 'DigiBangla'];
 
 export function FeedScroller({ articles }: FeedScrollerProps) {
   const [language, setLanguage] = useState<'en' | 'bn'>(() => {
-    // Initialise from storage on first render (client only)
-    if (typeof window !== 'undefined') return getPreferences().language;
+    if (typeof window !== 'undefined') return getPreferences().language ?? 'en';
     return 'en';
   });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showHint, setShowHint] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Filter articles by language
   const filtered = articles.filter((a) =>
     language === 'bn'
       ? BN_SOURCES.some((s) => a.source.includes(s))
       : !BN_SOURCES.some((s) => a.source.includes(s))
   );
 
-  // When language changes reset scroll position
   const handleLanguageChange = useCallback((lang: 'en' | 'bn') => {
     setLanguage(lang);
     setCurrentIndex(0);
-    containerRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
   }, []);
 
-  // Hide swipe hint after first scroll
   const handleScroll = useCallback(() => {
-    if (!containerRef.current) return;
-    const { scrollTop, clientHeight } = containerRef.current;
-    const idx = Math.round(scrollTop / clientHeight);
+    const el = containerRef.current;
+    if (!el) return;
+    const idx = Math.round(el.scrollTop / el.clientHeight);
     setCurrentIndex(Math.min(idx, filtered.length - 1));
     if (idx > 0) setShowHint(false);
   }, [filtered.length]);
@@ -55,17 +54,14 @@ export function FeedScroller({ articles }: FeedScrollerProps) {
     return () => el.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // Keyboard navigation
   useEffect(() => {
     const go = (dir: 1 | -1) => {
       setCurrentIndex((prev) => {
         const next = Math.min(Math.max(prev + dir, 0), filtered.length - 1);
-        containerRef.current?.scrollTo({
-          top: next * window.innerHeight,
-          behavior: 'smooth',
-        });
+        containerRef.current?.scrollTo({ top: next * window.innerHeight, behavior: 'smooth' });
         return next;
       });
+      setShowHint(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowDown') { e.preventDefault(); go(1); }
@@ -77,11 +73,13 @@ export function FeedScroller({ articles }: FeedScrollerProps) {
 
   if (filtered.length === 0) {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-black">
-        <div className="text-center text-white/40 px-6">
-          <p className="text-base mb-1">No articles available</p>
-          <p className="text-sm">Try switching language</p>
-        </div>
+      <div className="h-[100svh] w-full flex flex-col items-center justify-center bg-black gap-6">
+        <p
+          className="text-[11px] tracking-[0.25em] uppercase text-center px-6"
+          style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--font-mono)' }}
+        >
+          NO ARTICLES — SWITCH LANGUAGE
+        </p>
         <BilingualSwitch onLanguageChange={handleLanguageChange} />
       </div>
     );
@@ -90,18 +88,31 @@ export function FeedScroller({ articles }: FeedScrollerProps) {
   const currentArticle = filtered[currentIndex] ?? filtered[0];
 
   return (
-    <div className="relative h-screen w-full bg-black overflow-hidden">
-      {/* Progress bar */}
+    <div className="relative h-[100svh] w-full bg-black overflow-hidden">
+      {/* Neon progress bar */}
       <ProgressBar currentIndex={currentIndex} totalArticles={filtered.length} />
 
-      {/* Language toggle — centered top */}
+      {/* Language switch — centered top */}
       <BilingualSwitch onLanguageChange={handleLanguageChange} />
+
+      {/* Article counter HUD — bottom left */}
+      <div
+        className="fixed bottom-6 left-4 z-20 pointer-events-none"
+        style={{ fontFamily: 'var(--font-mono)' }}
+      >
+        <span
+          className="text-[10px] tracking-widest tabular-nums"
+          style={{ color: 'rgba(255,255,255,0.2)' }}
+        >
+          {String(currentIndex + 1).padStart(2, '0')}&nbsp;/&nbsp;{String(filtered.length).padStart(2, '0')}
+        </span>
+      </div>
 
       {/* Scroll container */}
       <div
         ref={containerRef}
-        className="h-screen w-full overflow-y-scroll snap-y snap-mandatory"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        className="h-[100svh] w-full overflow-y-scroll"
+        style={{ scrollSnapType: 'y mandatory', WebkitOverflowScrolling: 'touch' }}
       >
         {filtered.map((article, index) => (
           <NewsCard
@@ -112,30 +123,41 @@ export function FeedScroller({ articles }: FeedScrollerProps) {
         ))}
       </div>
 
-      {/* Action bar — right side */}
+      {/* Actions — right side */}
       <ActionVerticalBar article={currentArticle} isVisible={true} />
 
-      {/* Context drawer trigger */}
+      {/* Context info drawer */}
       <ContextDrawer article={currentArticle} />
 
-      {/* Swipe hint — auto-dismisses after first scroll or 3 seconds */}
+      {/* Swipe hint */}
       {showHint && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none"
-          style={{ animation: 'fadeout 3s forwards 2s' }}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.2 }}
+          className="fixed bottom-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex flex-col items-center gap-1.5"
+          style={{ animation: 'hint-out 0.5s forwards 3s' }}
         >
-          <div className="flex flex-col items-center gap-1.5 text-white/30">
-            <svg className="w-5 h-5 animate-bounce" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <motion.div
+            animate={{ y: [0, 6, 0] }}
+            transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+              stroke="rgba(0,245,255,0.4)" strokeWidth="1.5">
               <path d="M12 5v14M5 12l7 7 7-7"/>
             </svg>
-            <span className="text-[11px] tracking-widest uppercase">Scroll to explore</span>
-          </div>
-        </div>
+          </motion.div>
+          <span
+            className="text-[10px] tracking-[0.3em] uppercase"
+            style={{ color: 'rgba(0,245,255,0.3)', fontFamily: 'var(--font-mono)' }}
+          >
+            SWIPE UP
+          </span>
+        </motion.div>
       )}
 
       <style>{`
-        div::-webkit-scrollbar { display: none; }
-        @keyframes fadeout { to { opacity: 0; } }
+        @keyframes hint-out { to { opacity: 0; } }
       `}</style>
     </div>
   );
