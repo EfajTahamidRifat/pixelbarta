@@ -58,7 +58,7 @@ export function BilingualSwitch({ onLanguageChange }: BilingualSwitchProps) {
                 transition={{ type: 'spring', stiffness: 300, damping: 28 }}
               />
             )}
-            <span className="relative z-10">{lang === 'en' ? 'EN' : 'বাংলা}</span>
+            <span className="relative z-10">{lang === 'en' ? 'EN' : '\u09AC\u09BE\u0982'}</span>
           </button>
         ))}
       </div>
